@@ -20,6 +20,7 @@
 #include <cxxabi.h>
 #include <fcntl.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
@@ -292,6 +293,7 @@ class Recording {
   private:
     Buffer _buf[CONCURRENCY_LEVEL];
     int _fd;
+    volatile bool _flushing;
     std::map<std::string, int> _symbol_map;
     std::map<std::string, int> _class_map;
     std::map<jmethodID, MethodInfo> _method_map;
@@ -301,17 +303,19 @@ class Recording {
     u64 _stop_nanos;
 
   public:
-    Recording(int fd) : _fd(fd), _symbol_map(), _class_map(), _method_map() {
+    Recording(int fd) : _fd(fd), _flushing(true), _symbol_map(), _class_map(), _method_map() {
         _start_time = OS::millis();
         _start_nanos = OS::nanotime();
 
         writeHeader(_buf);
         flush(_buf);
+        _flushing = false;
     }
 
     ~Recording() {
         _stop_nanos = OS::nanotime();
         _stop_time = OS::millis();
+        _flushing = true;
 
         for (int i = 0; i < CONCURRENCY_LEVEL; i++) {
             flush(&_buf[i]);
@@ -434,7 +438,11 @@ class Recording {
 
     void flush(Buffer* buf) {
         ssize_t result = write(_fd, buf->data(), buf->offset());
-        (void)result;
+        if (_flushing) {
+            fprintf(stderr, "JFR-PROF: flushed %ld/%d bytes of buffer %p from thread %d, file_pos = %ld\n",
+                    (long)result, buf->offset(), buf->data(), OS::threadId(), (long)lseek(_fd, 0, SEEK_CUR));
+            fflush(stderr);
+        }
         buf->reset();
     }
 
