@@ -22,6 +22,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/param.h>
+
 #include "profiler.h"
 #include "perfEvents.h"
 #include "allocTracer.h"
@@ -36,6 +37,7 @@
 #include "symbols.h"
 #include "vmStructs.h"
 
+#include <jvmticmlr.h>
 
 Profiler Profiler::_instance;
 
@@ -147,10 +149,83 @@ void Profiler::storeMethod(jmethodID method, jint bci, u64 counter) {
     atomicInc(_methods[i]._counter, counter);
 }
 
-void Profiler::addJavaMethod(const void* address, int length, jmethodID method) {
+typedef struct Self {
+    const void* start_address;
+    const void* end_address;
+
+    static void expandRange(Self* self, const void* other_start, const void* other_end) {
+        if (other_start < self->start_address)
+            self->start_address = other_start;
+        if (other_end > self->end_address)
+            self->end_address = other_end;
+    }
+} address_range_t;
+
+const unsigned int MASK = 0x00FFFFFF;
+const unsigned int SUB_RSP_IMM8  = 0x00ec8348;
+const unsigned int SUB_RSP_IMM32 = 0x00ec8148;
+std::map<jmethodID, uint32_t> frameSize;
+
+void Profiler::addJavaMethod(const void *address, int length, jmethodID method, const void *compile_info) {
     _jit_lock.lock();
     _java_methods.add(address, length, method);
     updateJitRange(address, (const char*)address + length);
+
+    FrameName fn(0, _thread_names_lock, _thread_names);
+
+    bool frame_size_found = false;
+    for (int offset = 0; offset < (length - sizeof(u_long)); offset++) {
+        u_long l = *(u_long *)((uint8_t*)address + offset);
+
+        u_int32_t insn = (l & MASK);
+        if (insn == SUB_RSP_IMM8 || insn == SUB_RSP_IMM32) {
+            frame_size_found = true;
+
+            uint32_t fsize = (l & (~MASK)) >> 8u * 3u;
+            if (insn == SUB_RSP_IMM8) {
+                fsize &= 0xFFu;
+            }
+            frameSize[method] = fsize;
+            //printf("frameSize of %s is %d, %d\n", fn.javaMethodName(method), frameSize[method], fsize);
+            break;
+        }
+    }
+
+    if (!frame_size_found) {
+        printf("frameSize for %s (%p:%d) not found\n", fn.javaMethodName(method), address, length);
+    }
+
+//    auto header = static_cast<const jvmtiCompiledMethodLoadRecordHeader *>(compile_info);
+//    if (header->kind == JVMTI_CMLR_INLINE_INFO) {
+//        const auto *record = (jvmtiCompiledMethodLoadInlineRecord *) header;
+//
+//        std::map<jmethodID, address_range_t> address_map;
+//
+//        const void * start_address = address;
+//
+//
+//
+//        int i;
+//        for (i = 0; i < record->numpcs; i++) {
+//            PCStackInfo *info = &record->pcinfo[i];
+//            void *end_addr = info->pc;
+//            for (int j = 0; j < info->numstackframes; j++) {
+//                jmethodID frame_method = info->methods[j];
+//                auto it = address_map.insert(std::make_pair(frame_method, address_range_t {start_address, end_addr}));
+//                address_range_t* range = &(it.first->second);
+//                address_range_t::expandRange(range, start_address, end_addr);
+//            }
+//            start_address = end_addr;
+//        }
+//
+//        printf("method: %s %p -- %p\n", fn.javaMethodName(method), address, (void*)((const char*) address + length));
+//        for (auto & it : address_map) {
+//            printf("  range: %s %p -- %p\n", fn.javaMethodName(it.first), it.second.start_address, it.second.end_address);
+//        }
+//        printf(("----- \n"));
+//
+//    }
+
     _jit_lock.unlock();
 }
 
@@ -263,6 +338,8 @@ int Profiler::getJavaTraceAsync(void* ucontext, ASGCT_CallFrame* frames, int max
     ASGCT_CallTrace trace = {jni, 0, frames};
     VM::_asyncGetCallTrace(&trace, max_depth, ucontext);
 
+    uintptr_t pc_save = 0;
+
 #ifndef SAFE_MODE
     if (trace.num_frames == ticks_unknown_Java) {
         // If current Java stack is not walkable (e.g. the top frame is not fully constructed),
@@ -274,6 +351,47 @@ int Profiler::getJavaTraceAsync(void* ucontext, ASGCT_CallFrame* frames, int max
                   sp = top_frame.sp(),
                   fp = top_frame.fp();
 
+
+        pc_save = pc;
+
+        if (addressInCode((const void*)pc)) {
+            jmethodID method = _java_methods.find((const void*)pc);
+
+            uintptr_t unextended_sp = sp + frameSize[method];
+            uintptr_t sp_pc = unextended_sp + 0x8 /* rax */ + 0x8 /* fp */;
+
+//            printf("shift sp_pc: %p, %p\n", (const void*)unextended_sp, (const void*)sp_pc);
+
+//            for (int offset = 0; offset < 3; offset++) {
+//                const void* sp_off = (const void*)(unextended_sp + offset * 8u);
+//                printf("%p: %lx\n", sp_off, *(const long*)sp_off);
+//            }
+
+            if (addressInCode(*(const void**)(sp_pc))) {
+                top_frame.shiftSP(8);
+//                printf("shift pc: %p\n", (void*)top_frame.pc());
+
+                trace.frames[0].bci = BCI_NATIVE_FRAME;
+                trace.frames[0].method_id = (jmethodID) "stack_shift_recovered";
+                trace.frames++;
+                max_depth--;
+
+                VM::_asyncGetCallTrace(&trace, max_depth, ucontext);
+
+                top_frame.restore(pc, sp, fp);
+
+                if (trace.num_frames > 0) {
+//                    printf("recovered! Yay\n");
+                    return trace.num_frames + (trace.frames - frames);
+                }
+
+                trace.num_frames = ticks_unknown_Java;
+
+                trace.frames--;
+                max_depth++;
+            }
+
+        }
         // Guess top method by PC and insert it manually into the call trace
         bool is_entry_frame = false;
         if (fillTopFrame((const void*)pc, trace.frames)) {
@@ -315,8 +433,29 @@ int Profiler::getJavaTraceAsync(void* ucontext, ASGCT_CallFrame* frames, int max
     }
 
     atomicInc(_failures[-trace.num_frames]);
+
+    if (trace.num_frames == ticks_unknown_Java) {
+        frames[0].bci = BCI_ERROR;
+
+        char* err = (char*)malloc(256);
+
+        FrameName fn(0, _thread_names_lock, _thread_names);
+
+        const char* mnf = "method not found";
+        const char* methodName = mnf;
+        if (addressInCode((const void*)pc_save)) {
+            jmethodID method = _java_methods.find((const void *) pc_save);
+            if (method != NULL) methodName = fn.javaMethodName(method);
+        }
+        sprintf(err, "%s %s _%p", err_string, methodName, (const void*) pc_save);
+        frames[0].method_id = (jmethodID)err;
+        frames[1].bci = BCI_ERROR;
+        frames[1].method_id = (jmethodID)err_string;
+        return 2;
+    }
     frames[0].bci = BCI_ERROR;
-    frames[0].method_id = (jmethodID)err_string;
+    frames[0].method_id = (jmethodID) err_string;
+
     return 1;
 }
 

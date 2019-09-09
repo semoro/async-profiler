@@ -52,6 +52,7 @@ class StackFrame {
     void ret();
 
     bool pop(bool trust_frame_pointer);
+    void shiftSP(int offset);
 };
 
 #endif // _STACKFRAME_H

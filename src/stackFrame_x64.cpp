@@ -110,4 +110,8 @@ bool StackFrame::pop(bool trust_frame_pointer) {
     return true;
 }
 
+void StackFrame::shiftSP(int offset) {
+    sp() += offset;
+}
+
 #endif // __x86_64__

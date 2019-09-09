@@ -34,7 +34,7 @@ const char FULL_VERSION_STRING[] =
     "Async-profiler " PROFILER_VERSION " built on " __DATE__ "\n"
     "Copyright 2019 Andrei Pangin\n";
 
-const int MAX_CALLTRACES    = 65536;
+const int MAX_CALLTRACES    = 65536 * 2 * 2;
 const int MAX_NATIVE_FRAMES = 128;
 const int RESERVED_FRAMES   = 4;
 const int MAX_NATIVE_LIBS   = 2048;
@@ -135,7 +135,7 @@ class Profiler {
     jvmtiError (*_JvmtiEnv_GetStackTrace)(void* self, void* thread, jint start_depth, jint max_frame_count,
                                           jvmtiFrameInfo* frame_buffer, jint* count_ptr);
 
-    void addJavaMethod(const void* address, int length, jmethodID method);
+    void addJavaMethod(const void *address, int length, jmethodID method, const void *pVoid);
     void removeJavaMethod(const void* address, jmethodID method);
     void addRuntimeStub(const void* address, int length, const char* name);
     void updateJitRange(const void* min_address, const void* max_address);
@@ -208,7 +208,7 @@ class Profiler {
                                            jint code_size, const void* code_addr,
                                            jint map_length, const jvmtiAddrLocationMap* map,
                                            const void* compile_info) {
-        _instance.addJavaMethod(code_addr, code_size, method);
+        _instance.addJavaMethod(code_addr, code_size, method, compile_info);
     }
 
     static void JNICALL CompiledMethodUnload(jvmtiEnv* jvmti, jmethodID method,

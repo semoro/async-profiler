@@ -42,13 +42,14 @@ class FrameName {
     locale_t _saved_locale;
 
     const char* cppDemangle(const char* name);
-    char* javaMethodName(jmethodID method);
+
     char* javaClassName(const char* symbol, int length, int style);
 
   public:
     FrameName(int style, Mutex& thread_names_lock, ThreadMap& thread_names);
     ~FrameName();
 
+    char* javaMethodName(jmethodID method);
     const char* name(ASGCT_CallFrame& frame);
 };
 
