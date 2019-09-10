@@ -125,6 +125,7 @@ class Profiler {
     NativeCodeCache _runtime_stubs;
     NativeCodeCache* _native_libs[MAX_NATIVE_LIBS];
     volatile int _native_lib_count;
+    uint8_t _debug_flags;
 
     JNINativeMethod _load_method;
     NativeLoadLibraryFunc _original_NativeLibrary_load;
@@ -177,7 +178,8 @@ class Profiler {
         _native_lib_count(0),
         _original_NativeLibrary_load(NULL),
         _ThreadLocalStorage_thread(NULL),
-        _JvmtiEnv_GetStackTrace(NULL) {
+        _JvmtiEnv_GetStackTrace(NULL),
+        _debug_flags(0) {
 
         for (int i = 0; i < CONCURRENCY_LEVEL; i++) {
             _calltrace_buffer[i] = NULL;

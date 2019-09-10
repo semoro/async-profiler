@@ -171,7 +171,6 @@ void Profiler::addJavaMethod(const void *address, int length, jmethodID method, 
     _java_methods.add(address, length, method);
     updateJitRange(address, (const char*)address + length);
 
-    FrameName fn(0, _thread_names_lock, _thread_names);
 
     bool frame_size_found = false;
     for (int offset = 0; offset < (length - sizeof(u_long)); offset++) {
@@ -191,7 +190,8 @@ void Profiler::addJavaMethod(const void *address, int length, jmethodID method, 
         }
     }
 
-    if (!frame_size_found) {
+    if (!frame_size_found && (_debug_flags & DEBUG_FRAMESIZE)) {
+        FrameName fn(0, _thread_names_lock, _thread_names);
         printf("frameSize for %s (%p:%d) not found\n", fn.javaMethodName(method), address, length);
     }
 
@@ -844,6 +844,8 @@ void Profiler::dumpSummary(std::ostream& out) {
     out << std::endl;
 }
 
+#define LOG_DEBUG(flag, msg) if (_debug_flags & flag) printf("%s(%u): " msg, __FILE__, __LINE__);
+#define LOG_DEBUGF(flag, msg, ...) if (_debug_flags & flag) printf("%s(%u): " msg, __FILE__, __LINE__, __VA_ARGS__);
 /*
  * Dump stacks in FlameGraph input format:
  * 
@@ -852,6 +854,7 @@ void Profiler::dumpSummary(std::ostream& out) {
 void Profiler::dumpCollapsed(std::ostream& out, Arguments& args) {
     MutexLocker ml(_state_lock);
     if (_state != IDLE || _engine == NULL) return;
+    LOG_DEBUG(DEBUG_DUMP, "Start dump collapsed")
 
     FrameName fn(args._style, _thread_names_lock, _thread_names);
     u64 unknown = 0;
@@ -875,6 +878,7 @@ void Profiler::dumpCollapsed(std::ostream& out, Arguments& args) {
     if (unknown != 0) {
         out << "[frame_buffer_overflow] " << unknown << "\n";
     }
+    LOG_DEBUG(DEBUG_DUMP, "Finish dump collapsed")
 }
 
 void Profiler::dumpFlameGraph(std::ostream& out, Arguments& args, bool tree) {
@@ -970,6 +974,7 @@ void Profiler::dumpFlat(std::ostream& out, Arguments& args) {
 }
 
 void Profiler::runInternal(Arguments& args, std::ostream& out) {
+    _debug_flags = args._debug_flags;
     switch (args._action) {
         case ACTION_START: {
             Error error = start(args);
@@ -1062,12 +1067,15 @@ void Profiler::run(Arguments& args) {
 
 void Profiler::shutdown(Arguments& args) {
     MutexLocker ml(_state_lock);
+    LOG_DEBUGF(DEBUG_DUMP, "Start shutdown, state: %u", _state)
 
     // The last chance to dump profile before VM terminates
     if (_state == RUNNING && args._output != OUTPUT_NONE) {
+        LOG_DEBUG(DEBUG_DUMP, "Start dump")
         args._action = ACTION_DUMP;
         run(args);
     }
 
     _state = TERMINATED;
+    LOG_DEBUG(DEBUG_DUMP, "Complete shutdown")
 }

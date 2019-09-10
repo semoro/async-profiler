@@ -64,6 +64,8 @@ const size_t EXTRA_BUF_SIZE = 512;
 //     height=PX     - FlameGraph frame height
 //     minwidth=PX   - FlameGraph minimum frame width
 //     reverse       - generate stack-reversed FlameGraph / Call tree
+//     debug_framesize
+//     debug_dump
 //     file=FILENAME - output file name for dumping
 //
 // It is possible to specify multiple dump options at the same time
@@ -160,6 +162,10 @@ Error Arguments::parse(const char* args) {
                 return Error("file must not be empty");
             }
             _file = value;
+        } else if (strcmp(arg, "debug_framesize") == 0) {
+            _debug_flags |= DEBUG_FRAMESIZE;
+        } else if (strcmp(arg, "debug_dump") == 0) {
+            _debug_flags |= DEBUG_DUMP;
         }
     }
 

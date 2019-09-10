@@ -30,6 +30,9 @@ const char* const EVENT_LOCK   = "lock";
 const char* const EVENT_WALL   = "wall";
 const char* const EVENT_ITIMER = "itimer";
 
+const uint8_t DEBUG_FRAMESIZE = 1u << 0u;
+const uint8_t DEBUG_DUMP = 1u << 1u;
+
 enum Action {
     ACTION_NONE,
     ACTION_START,
@@ -116,6 +119,7 @@ class Arguments {
     int _height;
     double _minwidth;
     bool _reverse;
+    uint8_t _debug_flags;
 
     Arguments() :
         _buf(NULL),
@@ -136,7 +140,8 @@ class Arguments {
         _width(1200),
         _height(16),
         _minwidth(0.25),
-        _reverse(false) {
+        _reverse(false),
+        _debug_flags(false) {
     }
 
     ~Arguments();
