@@ -844,8 +844,8 @@ void Profiler::dumpSummary(std::ostream& out) {
     out << std::endl;
 }
 
-#define LOG_DEBUG(flag, msg) if (_debug_flags & flag) printf("%s(%u): " msg, __FILE__, __LINE__);
-#define LOG_DEBUGF(flag, msg, ...) if (_debug_flags & flag) printf("%s(%u): " msg, __FILE__, __LINE__, __VA_ARGS__);
+#define LOG_DEBUG(flag, msg) if (_debug_flags & flag) printf("%s(%u): " msg "\n", __FILE__, __LINE__);
+#define LOG_DEBUGF(flag, msg, ...) if (_debug_flags & flag) printf("%s(%u): " msg "\n", __FILE__, __LINE__, __VA_ARGS__);
 /*
  * Dump stacks in FlameGraph input format:
  * 
