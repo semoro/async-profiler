@@ -975,6 +975,7 @@ void Profiler::dumpFlat(std::ostream& out, Arguments& args) {
 
 void Profiler::runInternal(Arguments& args, std::ostream& out) {
     _debug_flags = args._debug_flags;
+    LOG_DEBUGF(DEBUG_DUMP, "runInternal, args.action=%u", args._action)
     switch (args._action) {
         case ACTION_START: {
             Error error = start(args);
