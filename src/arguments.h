@@ -18,6 +18,7 @@
 #define _ARGUMENTS_H
 
 #include <stddef.h>
+#include <stdint.h>
 
 
 const long DEFAULT_INTERVAL = 10000000;  // 10 ms
@@ -141,7 +142,7 @@ class Arguments {
         _height(16),
         _minwidth(0.25),
         _reverse(false),
-        _debug_flags(false) {
+        _debug_flags(0) {
     }
 
     ~Arguments();
