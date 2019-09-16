@@ -357,7 +357,9 @@ int Profiler::getJavaTraceAsync(void* ucontext, ASGCT_CallFrame* frames, int max
         pc_save = pc;
 
         if (addressInCode((const void*)pc)) {
+            _jit_lock.lockShared();
             jmethodID method = _java_methods.find((const void*)pc);
+            _jit_lock.unlockShared();
 
             uintptr_t unextended_sp = sp + frameSize[method];
             uintptr_t sp_pc = unextended_sp + 0x8 /* rax */ + 0x8 /* fp */;
@@ -448,7 +450,9 @@ int Profiler::getJavaTraceAsync(void* ucontext, ASGCT_CallFrame* frames, int max
         const char* mnf = "method not found";
         const char* methodName = mnf;
         if (addressInCode((const void*)pc_save)) {
+            _jit_lock.lockShared();
             jmethodID method = _java_methods.find((const void *) pc_save);
+            _jit_lock.unlockShared();
             //if (method != NULL) methodName = fn.javaMethodName(method);
         }
         sprintf(err, "%s %s _%p", err_string, methodName, (const void*) pc_save);
