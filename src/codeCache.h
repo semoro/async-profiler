@@ -18,6 +18,7 @@
 #define _CODECACHE_H
 
 #include <jvmti.h>
+#include <stdint.h>
 
 #define NO_FRAME_SIZE -1
 
@@ -29,7 +30,7 @@ class CodeBlob {
     const void* _start;
     const void* _end;
     jmethodID _method;
-    uint32_t _frame_size = 0;
+    uint32_t _frame_size;
 
     bool valid();
 
