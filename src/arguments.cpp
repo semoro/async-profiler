@@ -166,6 +166,8 @@ Error Arguments::parse(const char* args) {
             _debug_flags |= DEBUG_FRAMESIZE;
         } else if (strcmp(arg, "debug_dump") == 0) {
             _debug_flags |= DEBUG_DUMP;
+        } else if (strcmp(arg, "debug_unknown_Java") == 0) {
+            _debug_flags |= DEBUG_UNKNOWN_JAVA;
         }
     }
 

@@ -33,6 +33,7 @@ const char* const EVENT_ITIMER = "itimer";
 
 const uint8_t DEBUG_FRAMESIZE = 1u << 0u;
 const uint8_t DEBUG_DUMP = 1u << 1u;
+const uint8_t DEBUG_UNKNOWN_JAVA = 1u << 2u;
 
 enum Action {
     ACTION_NONE,

@@ -30,6 +30,10 @@
 #include "vmEntry.h"
 
 
+#define HAS_DEBUG(flag) _debug_flags & flag
+#define LOG_DEBUG(flag, msg) if (HAS_DEBUG(flag)) printf("%s(%u): " msg "\n", __FILE__, __LINE__);
+#define LOG_DEBUGF(flag, msg, ...) if (HAS_DEBUG(flag)) printf("%s(%u): " msg "\n", __FILE__, __LINE__, __VA_ARGS__);
+
 const char FULL_VERSION_STRING[] =
     "Async-profiler " PROFILER_VERSION " built on " __DATE__ "\n"
     "Copyright 2019 Andrei Pangin\n";

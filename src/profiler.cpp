@@ -403,25 +403,29 @@ int Profiler::getJavaTraceAsync(void* ucontext, ASGCT_CallFrame* frames, int max
     atomicInc(_failures[-trace.num_frames]);
 
     if (trace.num_frames == ticks_unknown_Java) {
-        frames[0].bci = BCI_ERROR;
 
-        char* err = (char*)malloc(256);
+        if (HAS_DEBUG(DEBUG_UNKNOWN_JAVA)) {
+            trace.frames[0].bci = BCI_ERROR;
+            char *err = (char *) malloc(256);
 
-        FrameName fn(0, _thread_names_lock, _thread_names);
+            FrameName fn(0, _thread_names_lock, _thread_names);
 
-        const char* mnf = "method not found";
-        const char* methodName = mnf;
-        if (addressInCode((const void*)pc_save)) {
-            _jit_lock.lockShared();
-            jmethodID method = _java_methods.find((const void *) pc_save);
-            _jit_lock.unlockShared();
-            //if (method != NULL) methodName = fn.javaMethodName(method);
+            const char *mnf = "method not found";
+            const char *methodName = mnf;
+            if (addressInCode((const void *) pc_save)) {
+                _jit_lock.lockShared();
+                jmethodID method = _java_methods.find((const void *) pc_save);
+                _jit_lock.unlockShared();
+                if (method != NULL) methodName = fn.javaMethodName(method);
+            }
+            sprintf(err, "%s %s _%p", err_string, methodName, (const void *) pc_save);
+            trace.frames[0].method_id = (jmethodID) err;
+            trace.frames++;
         }
-        sprintf(err, "%s %s _%p", err_string, methodName, (const void*) pc_save);
-        frames[0].method_id = (jmethodID)err;
-        frames[1].bci = BCI_ERROR;
-        frames[1].method_id = (jmethodID)err_string;
-        return 2;
+
+        trace.frames[0].bci = BCI_ERROR;
+        trace.frames[0].method_id = (jmethodID)err_string;
+        return 1 + (int)(trace.frames - frames);
     }
     frames[0].bci = BCI_ERROR;
     frames[0].method_id = (jmethodID) err_string;
@@ -828,8 +832,6 @@ void Profiler::dumpSummary(std::ostream& out) {
     out << std::endl;
 }
 
-#define LOG_DEBUG(flag, msg) if (_debug_flags & flag) printf("%s(%u): " msg "\n", __FILE__, __LINE__);
-#define LOG_DEBUGF(flag, msg, ...) if (_debug_flags & flag) printf("%s(%u): " msg "\n", __FILE__, __LINE__, __VA_ARGS__);
 /*
  * Dump stacks in FlameGraph input format:
  * 
