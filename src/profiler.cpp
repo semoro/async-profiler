@@ -195,36 +195,6 @@ void Profiler::addJavaMethod(const void *address, int length, jmethodID method, 
 
     _java_methods.add(address, length, method, frame_size);
 
-//    auto header = static_cast<const jvmtiCompiledMethodLoadRecordHeader *>(compile_info);
-//    if (header->kind == JVMTI_CMLR_INLINE_INFO) {
-//        const auto *record = (jvmtiCompiledMethodLoadInlineRecord *) header;
-//
-//        std::map<jmethodID, address_range_t> address_map;
-//
-//        const void * start_address = address;
-//
-//
-//
-//        int i;
-//        for (i = 0; i < record->numpcs; i++) {
-//            PCStackInfo *info = &record->pcinfo[i];
-//            void *end_addr = info->pc;
-//            for (int j = 0; j < info->numstackframes; j++) {
-//                jmethodID frame_method = info->methods[j];
-//                auto it = address_map.insert(std::make_pair(frame_method, address_range_t {start_address, end_addr}));
-//                address_range_t* range = &(it.first->second);
-//                address_range_t::expandRange(range, start_address, end_addr);
-//            }
-//            start_address = end_addr;
-//        }
-//
-//        printf("method: %s %p -- %p\n", fn.javaMethodName(method), address, (void*)((const char*) address + length));
-//        for (auto & it : address_map) {
-//            printf("  range: %s %p -- %p\n", fn.javaMethodName(it.first), it.second.start_address, it.second.end_address);
-//        }
-//        printf(("----- \n"));
-//
-//    }
 
     _jit_lock.unlock();
 }
