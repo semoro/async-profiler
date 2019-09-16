@@ -576,6 +576,10 @@ void Profiler::recordSample(void* ucontext, u64 counter, jint event_type, jmetho
     _jfr.recordExecutionSample(lock_index, tid, call_trace_id);
 
     _locks[lock_index].unlock();
+
+    auto t1 = std::chrono::high_resolution_clock::now();
+
+    _overhead += (t1 - t0).count();
 }
 
 jboolean JNICALL Profiler::NativeLibraryLoadTrap(JNIEnv* env, jobject self, jstring name, jboolean builtin) {
@@ -858,11 +862,13 @@ void Profiler::dumpCollapsed(std::ostream& out, Arguments& args) {
 
     FrameName fn(args._style, _thread_names_lock, _thread_names);
     u64 unknown = 0;
+    u64 stored = 0;
 
     for (int i = 0; i < MAX_CALLTRACES; i++) {
         CallTraceSample& trace = _traces[i];
         if (trace._samples == 0) continue;
 
+        stored += trace._samples;
         if (trace._num_frames == 0) {
             unknown += (args._counter == COUNTER_SAMPLES ? trace._samples : trace._counter);
             continue;
@@ -877,6 +883,10 @@ void Profiler::dumpCollapsed(std::ostream& out, Arguments& args) {
 
     if (unknown != 0) {
         out << "[frame_buffer_overflow] " << unknown << "\n";
+    }
+    u64 lost_samples = _total_samples - stored;
+    if (lost_samples > 0) {
+        out << "[sample_map_overflow] " << lost_samples << "\n";
     }
     LOG_DEBUG(DEBUG_DUMP, "Finish dump collapsed")
 }
