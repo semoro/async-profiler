@@ -36,6 +36,7 @@
 #include "stackFrame.h"
 #include "symbols.h"
 #include "vmStructs.h"
+#include <chrono>
 
 #include <jvmticmlr.h>
 
@@ -342,6 +343,7 @@ int Profiler::getJavaTraceAsync(void* ucontext, ASGCT_CallFrame* frames, int max
 
 #ifndef SAFE_MODE
     if (trace.num_frames == ticks_unknown_Java) {
+        auto t0 = std::chrono::high_resolution_clock::now();
         // If current Java stack is not walkable (e.g. the top frame is not fully constructed),
         // try to manually pop the top frame off, hoping that the previous frame is walkable.
         // This is a temporary workaround for AsyncGetCallTrace issues,
@@ -416,6 +418,8 @@ int Profiler::getJavaTraceAsync(void* ucontext, ASGCT_CallFrame* frames, int max
             // Restore previous context
             trace.num_frames = ticks_unknown_Java;
         }
+        auto t1 = std::chrono::high_resolution_clock::now();
+        _recovery_overhead += (t1 - t0).count();
     } else if (trace.num_frames == ticks_GC_active && _JvmtiEnv_GetStackTrace != NULL) {
         // While GC is running Java threads are known to be at safepoint
         return getJavaTraceJvmti((jvmtiFrameInfo*)frames, frames, max_depth);
@@ -445,7 +449,7 @@ int Profiler::getJavaTraceAsync(void* ucontext, ASGCT_CallFrame* frames, int max
         const char* methodName = mnf;
         if (addressInCode((const void*)pc_save)) {
             jmethodID method = _java_methods.find((const void *) pc_save);
-            if (method != NULL) methodName = fn.javaMethodName(method);
+            //if (method != NULL) methodName = fn.javaMethodName(method);
         }
         sprintf(err, "%s %s _%p", err_string, methodName, (const void*) pc_save);
         frames[0].method_id = (jmethodID)err;
@@ -526,7 +530,11 @@ bool Profiler::addressInCode(const void* pc) {
     return false;
 }
 
+
+
 void Profiler::recordSample(void* ucontext, u64 counter, jint event_type, jmethodID event) {
+
+    auto t0 = std::chrono::high_resolution_clock::now();
     int tid = OS::threadId();
 
     u64 lock_index = atomicInc(_total_samples) % CONCURRENCY_LEVEL;
@@ -538,6 +546,9 @@ void Profiler::recordSample(void* ucontext, u64 counter, jint event_type, jmetho
             // Need to reset PerfEvents ring buffer, even though we discard the collected trace
             _engine->getNativeTrace(ucontext, tid, NULL, 0, _jit_min_address, _jit_max_address);
         }
+        auto t1 = std::chrono::high_resolution_clock::now();
+
+        _overhead += (t1 - t0).count();
         return;
     }
 
@@ -554,9 +565,12 @@ void Profiler::recordSample(void* ucontext, u64 counter, jint event_type, jmetho
     }
 
     if (event_type == 0 || _JvmtiEnv_GetStackTrace == NULL) {
+        auto t2 = std::chrono::high_resolution_clock::now();
         if (OS::isSignalSafeTLS() || need_java_trace) {
             num_frames += getJavaTraceAsync(ucontext, frames + num_frames, _max_stack_depth);
         }
+        auto t3 = std::chrono::high_resolution_clock::now();
+        _async_st_overhead += (t3 - t2).count();
     } else {
         // Events like object allocation happen at known places where it is safe to call JVM TI
         jvmtiFrameInfo* jvmti_frames = _calltrace_buffer[lock_index]->_jvmti_frames;
@@ -1078,6 +1092,9 @@ void Profiler::run(Arguments& args) {
 
 void Profiler::shutdown(Arguments& args) {
     MutexLocker ml(_state_lock);
+    printf("Time spent in recordSample: %lld ns\n", _overhead);
+    printf("Time spent in getJavaTraceAsync: %lld ns\n", _async_st_overhead);
+    printf("Time spent in getJavaTraceAsync.recovery: %lld ns\n", _recovery_overhead);
     LOG_DEBUGF(DEBUG_DUMP, "Start shutdown, state: %u", _state)
 
     // The last chance to dump profile before VM terminates

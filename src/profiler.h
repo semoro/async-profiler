@@ -93,6 +93,9 @@ enum State {
 
 class Profiler {
   private:
+    volatile unsigned long long _overhead;
+    volatile unsigned long long _async_st_overhead;
+    volatile unsigned long long _recovery_overhead;
     Mutex _state_lock;
     State _state;
     Mutex _thread_names_lock;
@@ -179,7 +182,7 @@ class Profiler {
         _original_NativeLibrary_load(NULL),
         _ThreadLocalStorage_thread(NULL),
         _JvmtiEnv_GetStackTrace(NULL),
-        _debug_flags(0) {
+        _debug_flags(0), _async_st_overhead(0), _overhead(0), _recovery_overhead(0) {
 
         for (int i = 0; i < CONCURRENCY_LEVEL; i++) {
             _calltrace_buffer[i] = NULL;
