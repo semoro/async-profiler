@@ -165,36 +165,35 @@ typedef struct Self {
 const unsigned int MASK = 0x00FFFFFF;
 const unsigned int SUB_RSP_IMM8  = 0x00ec8348;
 const unsigned int SUB_RSP_IMM32 = 0x00ec8148;
-std::map<jmethodID, uint32_t> frameSize;
 
 void Profiler::addJavaMethod(const void *address, int length, jmethodID method, const void *compile_info) {
     _jit_lock.lock();
-    _java_methods.add(address, length, method);
+
     updateJitRange(address, (const char*)address + length);
 
-
-    bool frame_size_found = false;
+    uint32_t frame_size = -1;
     for (int offset = 0; offset < (length - sizeof(u_long)); offset++) {
         u_long l = *(u_long *)((uint8_t*)address + offset);
 
         u_int32_t insn = (l & MASK);
         if (insn == SUB_RSP_IMM8 || insn == SUB_RSP_IMM32) {
-            frame_size_found = true;
 
             uint32_t fsize = (l & (~MASK)) >> 8u * 3u;
             if (insn == SUB_RSP_IMM8) {
                 fsize &= 0xFFu;
             }
-            frameSize[method] = fsize;
+            frame_size = fsize;
             //printf("frameSize of %s is %d, %d\n", fn.javaMethodName(method), frameSize[method], fsize);
             break;
         }
     }
 
-    if (!frame_size_found && (_debug_flags & DEBUG_FRAMESIZE)) {
+    if (frame_size == NO_FRAME_SIZE && (_debug_flags & DEBUG_FRAMESIZE)) {
         FrameName fn(0, _thread_names_lock, _thread_names);
         printf("frameSize for %s (%p:%d) not found\n", fn.javaMethodName(method), address, length);
     }
+
+    _java_methods.add(address, length, method, frame_size);
 
 //    auto header = static_cast<const jvmtiCompiledMethodLoadRecordHeader *>(compile_info);
 //    if (header->kind == JVMTI_CMLR_INLINE_INFO) {
@@ -356,13 +355,14 @@ int Profiler::getJavaTraceAsync(void* ucontext, ASGCT_CallFrame* frames, int max
 
         pc_save = pc;
 
-        if (addressInCode((const void*)pc)) {
+        if (addressInJitRange((const void*)pc)) {
             _jit_lock.lockShared();
-            jmethodID method = _java_methods.find((const void*)pc);
+            uint32_t frame_size = _java_methods.findFrameSize((const void*)pc);
             _jit_lock.unlockShared();
+            if (frame_size != NO_FRAME_SIZE) {
 
-            uintptr_t unextended_sp = sp + frameSize[method];
-            uintptr_t sp_pc = unextended_sp + 0x8 /* rax */ + 0x8 /* fp */;
+                uintptr_t unextended_sp = sp + frame_size;
+                uintptr_t sp_pc = unextended_sp + 0x8 /* rax */ + 0x8 /* fp */;
 
 //            printf("shift sp_pc: %p, %p\n", (const void*)unextended_sp, (const void*)sp_pc);
 
@@ -371,28 +371,29 @@ int Profiler::getJavaTraceAsync(void* ucontext, ASGCT_CallFrame* frames, int max
 //                printf("%p: %lx\n", sp_off, *(const long*)sp_off);
 //            }
 
-            if (addressInCode(*(const void**)(sp_pc))) {
-                top_frame.shiftSP(8);
+                if (addressInCode(*(const void **) (sp_pc))) {
+                    top_frame.shiftSP(8);
 //                printf("shift pc: %p\n", (void*)top_frame.pc());
 
-                trace.frames[0].bci = BCI_NATIVE_FRAME;
-                trace.frames[0].method_id = (jmethodID) "stack_shift_recovered";
-                trace.frames++;
-                max_depth--;
+                    trace.frames[0].bci = BCI_NATIVE_FRAME;
+                    trace.frames[0].method_id = (jmethodID) "stack_shift_recovered";
+                    trace.frames++;
+                    max_depth--;
 
-                VM::_asyncGetCallTrace(&trace, max_depth, ucontext);
+                    VM::_asyncGetCallTrace(&trace, max_depth, ucontext);
 
-                top_frame.restore(pc, sp, fp);
+                    top_frame.restore(pc, sp, fp);
 
-                if (trace.num_frames > 0) {
+                    if (trace.num_frames > 0) {
 //                    printf("recovered! Yay\n");
-                    return trace.num_frames + (trace.frames - frames);
+                        return trace.num_frames + (trace.frames - frames);
+                    }
+
+                    trace.num_frames = ticks_unknown_Java;
+
+                    trace.frames--;
+                    max_depth++;
                 }
-
-                trace.num_frames = ticks_unknown_Java;
-
-                trace.frames--;
-                max_depth++;
             }
 
         }
@@ -515,7 +516,7 @@ bool Profiler::fillTopFrame(const void* pc, ASGCT_CallFrame* frame) {
 bool Profiler::addressInCode(const void* pc) {
     // 1. Check if PC lies within JVM's compiled code cache
     // Address in CodeCache is executable if it belongs to a Java method or a runtime stub
-    if (pc >= _jit_min_address && pc < _jit_max_address) {
+    if (addressInJitRange(pc)) {
         _jit_lock.lockShared();
         bool valid = _java_methods.find(pc) != NULL || _runtime_stubs.find(pc) != NULL;
         _jit_lock.unlockShared();
@@ -1110,4 +1111,8 @@ void Profiler::shutdown(Arguments& args) {
 
     _state = TERMINATED;
     LOG_DEBUG(DEBUG_DUMP, "Complete shutdown")
+}
+
+bool Profiler::addressInJitRange(const void *address) {
+    return address >= _jit_min_address && address < _jit_max_address;
 }

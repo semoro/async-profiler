@@ -36,7 +36,7 @@ void CodeCache::expand() {
     delete[] old_blobs;
 }
 
-void CodeCache::add(const void* start, int length, jmethodID method) {
+void CodeCache::add(const void* start, int length, jmethodID method, uint32_t frame_size) {
     if (_count >= _capacity) {
         expand();
     }
@@ -44,6 +44,7 @@ void CodeCache::add(const void* start, int length, jmethodID method) {
     _blobs[_count]._start = start;
     _blobs[_count]._end = (const char*)start + length;
     _blobs[_count]._method = method;
+    _blobs[_count]._frame_size = frame_size;
     _count++;
 }
 
@@ -66,6 +67,16 @@ jmethodID CodeCache::find(const void* address) {
     return NULL;
 }
 
+uint32_t CodeCache::findFrameSize(const void* address) {
+    for (int i = 0; i < _count; i++) {
+        CodeBlob* cb = _blobs + i;
+        if (address >= cb->_start && address < cb->_end && cb->valid()) {
+            return _blobs[i]._frame_size;
+        }
+    }
+    return -1;
+}
+
 
 NativeCodeCache::NativeCodeCache(const char* name, const void* min_address, const void* max_address) {
     _name = strdup(name);
@@ -81,7 +92,7 @@ NativeCodeCache::~NativeCodeCache() {
 }
 
 void NativeCodeCache::add(const void* start, int length, const char* name) {
-    CodeCache::add(start, length, (jmethodID)strdup(name));
+    CodeCache::add(start, length, (jmethodID)strdup(name), -1);
 }
 
 void NativeCodeCache::sort() {

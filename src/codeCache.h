@@ -19,6 +19,7 @@
 
 #include <jvmti.h>
 
+#define NO_FRAME_SIZE -1
 
 const int INITIAL_CODE_CACHE_CAPACITY = 1000;
 
@@ -28,6 +29,7 @@ class CodeBlob {
     const void* _start;
     const void* _end;
     jmethodID _method;
+    uint32_t _frame_size = 0;
 
     bool valid();
 
@@ -66,9 +68,11 @@ class CodeCache {
         delete[] _blobs;
     }
 
-    void add(const void* start, int length, jmethodID method);
     void remove(const void* start, jmethodID method);
     jmethodID find(const void* address);
+    void add(const void *start, int length, jmethodID method, uint32_t frame_size);
+
+    uint32_t findFrameSize(const void *address);
 };
 
 

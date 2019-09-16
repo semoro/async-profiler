@@ -143,6 +143,7 @@ class Profiler {
     void removeJavaMethod(const void* address, jmethodID method);
     void addRuntimeStub(const void* address, int length, const char* name);
     void updateJitRange(const void* min_address, const void* max_address);
+    bool addressInJitRange(const void* address);
 
     const char* asgctError(int code);
     const char* findNativeMethod(const void* address);
