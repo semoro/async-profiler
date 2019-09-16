@@ -334,16 +334,8 @@ int Profiler::getJavaTraceAsync(void* ucontext, ASGCT_CallFrame* frames, int max
                 uintptr_t unextended_sp = sp + frame_size;
                 uintptr_t sp_pc = unextended_sp + 0x8 /* rax */ + 0x8 /* fp */;
 
-//            printf("shift sp_pc: %p, %p\n", (const void*)unextended_sp, (const void*)sp_pc);
-
-//            for (int offset = 0; offset < 3; offset++) {
-//                const void* sp_off = (const void*)(unextended_sp + offset * 8u);
-//                printf("%p: %lx\n", sp_off, *(const long*)sp_off);
-//            }
-
                 if (addressInCode(*(const void **) (sp_pc))) {
                     top_frame.shiftSP(8);
-//                printf("shift pc: %p\n", (void*)top_frame.pc());
 
                     trace.frames[0].bci = BCI_NATIVE_FRAME;
                     trace.frames[0].method_id = (jmethodID) "stack_shift_recovered";
@@ -355,7 +347,6 @@ int Profiler::getJavaTraceAsync(void* ucontext, ASGCT_CallFrame* frames, int max
                     top_frame.restore(pc, sp, fp);
 
                     if (trace.num_frames > 0) {
-//                    printf("recovered! Yay\n");
                         return trace.num_frames + (trace.frames - frames);
                     }
 
