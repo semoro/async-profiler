@@ -71,6 +71,15 @@ u64 Profiler::hashCallTrace(int num_frames, ASGCT_CallFrame* frames) {
     return h;
 }
 
+void Profiler::storePreciseCallTrace(int num_frames, ASGCT_CallFrame *frames, u64 counter, u64 sample_num) {
+    CallTraceSample sample = CallTraceSample();
+    sample._num_frames = num_frames;
+    sample._samples = 1;
+    sample._counter = counter;
+    copyToFrameBuffer(num_frames, frames, sample._start_frame);
+    _traces[sample_num] = sample;
+}
+
 int Profiler::storeCallTrace(int num_frames, ASGCT_CallFrame* frames, u64 counter) {
     u64 hash = hashCallTrace(num_frames, frames);
     int bucket = (int)(hash % MAX_CALLTRACES);
@@ -79,7 +88,9 @@ int Profiler::storeCallTrace(int num_frames, ASGCT_CallFrame* frames, u64 counte
     while (_hashes[i] != hash) {
         if (_hashes[i] == 0) {
             if (__sync_bool_compare_and_swap(&_hashes[i], 0, hash)) {
-                copyToFrameBuffer(num_frames, frames, &_traces[i]);
+                CallTraceSample& sample = _traces[i];
+                copyToFrameBuffer(num_frames, frames, sample._start_frame);
+                sample._num_frames = num_frames;
                 break;
             }
             continue;
@@ -95,7 +106,7 @@ int Profiler::storeCallTrace(int num_frames, ASGCT_CallFrame* frames, u64 counte
     return i;
 }
 
-void Profiler::copyToFrameBuffer(int num_frames, ASGCT_CallFrame* frames, CallTraceSample* trace) {
+void Profiler::copyToFrameBuffer(int num_frames, ASGCT_CallFrame* frames, int& start_frame_out) {
     // Atomically reserve space in frame buffer
     int start_frame;
     do {
@@ -106,8 +117,9 @@ void Profiler::copyToFrameBuffer(int num_frames, ASGCT_CallFrame* frames, CallTr
         }
     } while (!__sync_bool_compare_and_swap(&_frame_buffer_index, start_frame, start_frame + num_frames));
 
-    trace->_start_frame = start_frame;
-    trace->_num_frames = num_frames;
+    start_frame_out = start_frame;
+//    trace->_start_frame = start_frame;
+//    trace->_num_frames = num_frames;
 
     for (int i = 0; i < num_frames; i++) {
         _frame_buffer[start_frame++] = frames[i];
@@ -189,7 +201,7 @@ void Profiler::addJavaMethod(const void *address, int length, jmethodID method, 
     }
 
     if (frame_size == NO_FRAME_SIZE && (_debug_flags & DEBUG_FRAMESIZE)) {
-        FrameName fn(0, _thread_names_lock, _thread_names);
+        FrameName fn(0, _thread_names_lock, _thread_names, false);
         printf("frameSize for %s (%p:%d) not found\n", fn.javaMethodName(method), address, length);
     }
 
@@ -408,7 +420,7 @@ int Profiler::getJavaTraceAsync(void* ucontext, ASGCT_CallFrame* frames, int max
             trace.frames[0].bci = BCI_ERROR;
             char *err = (char *) malloc(256);
 
-            FrameName fn(0, _thread_names_lock, _thread_names);
+            FrameName fn(0, _thread_names_lock, _thread_names, false);
 
             const char *mnf = "method not found";
             const char *methodName = mnf;
@@ -507,7 +519,8 @@ void Profiler::recordSample(void* ucontext, u64 counter, jint event_type, jmetho
     auto t0 = std::chrono::high_resolution_clock::now();
     int tid = OS::threadId();
 
-    u64 lock_index = atomicInc(_total_samples) % CONCURRENCY_LEVEL;
+    u64 sample_num = atomicInc(_total_samples);
+    u64 lock_index = sample_num % CONCURRENCY_LEVEL;
     if (!_locks[lock_index].tryLock()) {
         // Too many concurrent signals already
         atomicInc(_failures[-ticks_skipped]);
@@ -524,7 +537,7 @@ void Profiler::recordSample(void* ucontext, u64 counter, jint event_type, jmetho
 
     atomicInc(_total_counter, counter);
 
-    ASGCT_CallFrame* frames = _calltrace_buffer[lock_index]->_asgct_frames;
+    ASGCT_CallFrame *frames = _calltrace_buffer[lock_index]->_asgct_frames;
     bool need_java_trace = true;
 
     int num_frames = 0;
@@ -543,21 +556,26 @@ void Profiler::recordSample(void* ucontext, u64 counter, jint event_type, jmetho
         _async_st_overhead += (t3 - t2).count();
     } else {
         // Events like object allocation happen at known places where it is safe to call JVM TI
-        jvmtiFrameInfo* jvmti_frames = _calltrace_buffer[lock_index]->_jvmti_frames;
+        jvmtiFrameInfo *jvmti_frames = _calltrace_buffer[lock_index]->_jvmti_frames;
         num_frames += getJavaTraceJvmti(jvmti_frames + num_frames, frames + num_frames, _max_stack_depth);
     }
 
     if (num_frames == 0 || (num_frames == 1 && event != NULL)) {
-        num_frames += makeEventFrame(frames + num_frames, BCI_ERROR, (jmethodID)"not_walkable");
+        num_frames += makeEventFrame(frames + num_frames, BCI_ERROR, (jmethodID) "not_walkable");
     }
 
     if (_threads) {
-        num_frames += makeEventFrame(frames + num_frames, BCI_THREAD_ID, (jmethodID)(uintptr_t)tid);
+        num_frames += makeEventFrame(frames + num_frames, BCI_THREAD_ID, (jmethodID) (uintptr_t) tid);
     }
 
-    storeMethod(frames[0].method_id, frames[0].bci, counter);
-    int call_trace_id = storeCallTrace(num_frames, frames, counter);
-    _jfr.recordExecutionSample(lock_index, tid, call_trace_id);
+    if (!_use_bci) {
+        storeMethod(frames[0].method_id, frames[0].bci, counter);
+
+        int call_trace_id = storeCallTrace(num_frames, frames, counter);
+        _jfr.recordExecutionSample(lock_index, tid, call_trace_id);
+    } else {
+        storePreciseCallTrace(num_frames, frames, counter, sample_num);
+    }
 
     _locks[lock_index].unlock();
 
@@ -840,9 +858,9 @@ void Profiler::dumpSummary(std::ostream& out) {
 void Profiler::dumpCollapsed(std::ostream& out, Arguments& args) {
     MutexLocker ml(_state_lock);
     if (_state != IDLE || _engine == NULL) return;
-    LOG_DEBUG(DEBUG_DUMP, "Start dump collapsed")
+    LOG_DEBUGF(DEBUG_DUMP, "Start dump collapsed, _use_bci=%d", _use_bci)
 
-    FrameName fn(args._style, _thread_names_lock, _thread_names);
+    FrameName fn(args._style, _thread_names_lock, _thread_names, _use_bci);
     u64 unknown = 0;
     u64 stored = 0;
 
@@ -878,7 +896,8 @@ void Profiler::dumpFlameGraph(std::ostream& out, Arguments& args, bool tree) {
     if (_state != IDLE || _engine == NULL) return;
 
     FlameGraph flamegraph(args._title, args._counter, args._width, args._height, args._minwidth, args._reverse);
-    FrameName fn(args._style, _thread_names_lock, _thread_names);
+    assert(!_use_bci);
+    FrameName fn(args._style, _thread_names_lock, _thread_names, false);
 
     for (int i = 0; i < MAX_CALLTRACES; i++) {
         CallTraceSample& trace = _traces[i];
@@ -910,7 +929,8 @@ void Profiler::dumpTraces(std::ostream& out, Arguments& args) {
     MutexLocker ml(_state_lock);
     if (_state != IDLE || _engine == NULL) return;
 
-    FrameName fn(args._style | STYLE_DOTTED, _thread_names_lock, _thread_names);
+    assert(!_use_bci);
+    FrameName fn(args._style | STYLE_DOTTED, _thread_names_lock, _thread_names, false);
     double percent = 100.0 / _total_counter;
     char buf[1024];
 
@@ -943,7 +963,8 @@ void Profiler::dumpFlat(std::ostream& out, Arguments& args) {
     MutexLocker ml(_state_lock);
     if (_state != IDLE || _engine == NULL) return;
 
-    FrameName fn(args._style | STYLE_DOTTED, _thread_names_lock, _thread_names);
+    assert(!_use_bci);
+    FrameName fn(args._style | STYLE_DOTTED, _thread_names_lock, _thread_names, false);
     double percent = 100.0 / _total_counter;
     char buf[1024];
 
@@ -967,6 +988,7 @@ void Profiler::dumpFlat(std::ostream& out, Arguments& args) {
 
 void Profiler::runInternal(Arguments& args, std::ostream& out) {
     _debug_flags = args._debug_flags;
+    _use_bci = args._use_bci;
     LOG_DEBUGF(DEBUG_DUMP, "runInternal, args.action=%u", args._action)
     switch (args._action) {
         case ACTION_START: {

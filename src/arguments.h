@@ -121,6 +121,7 @@ class Arguments {
     int _height;
     double _minwidth;
     bool _reverse;
+    bool _use_bci;
     uint8_t _debug_flags;
 
     Arguments() :
@@ -143,7 +144,8 @@ class Arguments {
         _height(16),
         _minwidth(0.25),
         _reverse(false),
-        _debug_flags(0) {
+        _debug_flags(0),
+        _use_bci(false) {
     }
 
     ~Arguments();

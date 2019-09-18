@@ -162,6 +162,8 @@ Error Arguments::parse(const char* args) {
                 return Error("file must not be empty");
             }
             _file = value;
+        } else if (strcmp(arg, "use_bci") == 0) {
+            _use_bci = true;
         } else if (strcmp(arg, "debug_framesize") == 0) {
             _debug_flags |= DEBUG_FRAMESIZE;
         } else if (strcmp(arg, "debug_dump") == 0) {

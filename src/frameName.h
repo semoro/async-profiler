@@ -40,17 +40,21 @@ class FrameName {
     Mutex& _thread_names_lock;
     ThreadMap& _thread_names;
     locale_t _saved_locale;
+    bool _use_bci;
 
     const char* cppDemangle(const char* name);
 
     char* javaClassName(const char* symbol, int length, int style);
 
   public:
-    FrameName(int style, Mutex& thread_names_lock, ThreadMap& thread_names);
+    FrameName(int style, Mutex& thread_names_lock, ThreadMap& thread_names, bool use_bci);
     ~FrameName();
 
     char* javaMethodName(jmethodID method);
+    const char* javaFrameName(ASGCT_CallFrame& frame);
     const char* name(ASGCT_CallFrame& frame);
+
+    const char *javaMethodNameCached(jmethodID method);
 };
 
 #endif // _FRAMENAME_H

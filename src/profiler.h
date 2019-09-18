@@ -133,6 +133,7 @@ class Profiler {
     NativeCodeCache* _native_libs[MAX_NATIVE_LIBS];
     volatile int _native_lib_count;
     uint8_t _debug_flags;
+    bool _use_bci;
 
     JNINativeMethod _load_method;
     NativeLoadLibraryFunc _original_NativeLibrary_load;
@@ -159,7 +160,7 @@ class Profiler {
     bool addressInCode(const void* pc);
     u64 hashCallTrace(int num_frames, ASGCT_CallFrame* frames);
     int storeCallTrace(int num_frames, ASGCT_CallFrame* frames, u64 counter);
-    void copyToFrameBuffer(int num_frames, ASGCT_CallFrame* frames, CallTraceSample* trace);
+    void storePreciseCallTrace(int num_frames, ASGCT_CallFrame *frames, u64 counter, u64 i);
     u64 hashMethod(jmethodID method);
     void storeMethod(jmethodID method, jint bci, u64 counter);
     void initJvmtiFunctions(NativeCodeCache* libjvm);
@@ -242,6 +243,8 @@ class Profiler {
     }
 
     friend class Recording;
+
+    void copyToFrameBuffer(int num_frames, ASGCT_CallFrame *frames, int &start_frame_out);
 };
 
 #endif // _PROFILER_H

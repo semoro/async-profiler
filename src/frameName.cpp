@@ -23,11 +23,12 @@
 #include "vmStructs.h"
 
 
-FrameName::FrameName(int style, Mutex& thread_names_lock, ThreadMap& thread_names) :
+FrameName::FrameName(int style, Mutex& thread_names_lock, ThreadMap& thread_names, bool use_bci) :
     _cache(),
     _style(style),
     _thread_names_lock(thread_names_lock),
-    _thread_names(thread_names)
+    _thread_names(thread_names),
+    _use_bci(use_bci)
 {
     // Require printf to use standard C format regardless of system locale
     _saved_locale = uselocale(newlocale(LC_NUMERIC_MASK, "C", (locale_t)0));
@@ -169,14 +170,72 @@ const char* FrameName::name(ASGCT_CallFrame& frame) {
         }
 
         default: {
-            JMethodCache::iterator it = _cache.lower_bound(frame.method_id);
-            if (it != _cache.end() && it->first == frame.method_id) {
-                return it->second.c_str();
+
+            return javaFrameName(frame);
+        }
+    }
+}
+
+const char* FrameName::javaMethodNameCached(jmethodID method) {
+    JMethodCache::iterator it = _cache.lower_bound(method);
+    if (it != _cache.end() && it->first == method) {
+        return it->second.c_str();
+    }
+
+
+    const char* newName = javaMethodName(method);
+    it = _cache.insert(it, JMethodCache::value_type(method, newName));
+    return it->second.c_str();
+}
+
+const char *FrameName::javaFrameName(ASGCT_CallFrame &frame) {
+
+    jvmtiEnv* jvmti = VM::jvmti();
+    jvmtiError err;
+
+    const char* name = javaMethodNameCached(frame.method_id);
+    
+    if (_use_bci) {
+
+        char* file_name = NULL;
+        int entry_count = 0;
+        jvmtiLineNumberEntry* line_number_table = NULL;
+        jclass method_class;
+        jmethodID method = frame.method_id;
+
+
+        char* result = _buf;
+        strcpy(result, name);
+
+        if ((err = jvmti->GetMethodDeclaringClass(method, &method_class)) == 0 &&
+            (err = jvmti->GetSourceFileName(method_class, &file_name)) == 0 &&
+            (err = jvmti->GetLineNumberTable(method, &entry_count, &line_number_table)) == 0) {
+
+            int line_number = -1;
+            for (int i = entry_count - 1; i >= 0; i--) {
+                if (line_number_table[i].start_location <= frame.bci) {
+                    line_number = line_number_table[i].line_number;
+                    break;
+                }
             }
 
-            const char* newName = javaMethodName(frame.method_id);
-            _cache.insert(it, JMethodCache::value_type(frame.method_id, newName));
-            return newName;
+
+            if (line_number == -1 && file_name[0] == 'I') {
+                printf("Fail in %s, %d", file_name, line_number);
+            }
+            strcat(result, "_$[");
+            strcat(result, file_name);
+            char ln_buf[32];
+            snprintf(ln_buf, sizeof(ln_buf), ":%d]$", line_number);
+            strcat(result, ln_buf);
+        } else {
+            printf("GetSource, err: %d\n", err);
         }
+        jvmti->Deallocate((unsigned char*)file_name);
+        jvmti->Deallocate((unsigned char*)line_number_table);
+
+        return result;
+    } else {
+        return name;
     }
 }
