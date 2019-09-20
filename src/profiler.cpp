@@ -37,6 +37,7 @@
 #include "symbols.h"
 #include "vmStructs.h"
 #include <chrono>
+#include <assert.h>
 
 #include <jvmticmlr.h>
 
