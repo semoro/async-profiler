@@ -45,6 +45,11 @@ class FrameName {
 
     char* javaClassName(const char* symbol, int length, int style);
 
+
+    char* processJvmName(char *out, const char *signature_or_name, int& s_pos, int style);
+    void appendMethodName(char* out, const char *name);
+    void appendDemangledJvmSignature(char *out, const char *signature, int style);
+
   public:
     FrameName(int style, Mutex& thread_names_lock, ThreadMap& thread_names);
     ~FrameName();

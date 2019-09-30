@@ -64,11 +64,13 @@ char* FrameName::javaMethodName(jmethodID method) {
     if ((err = jvmti->GetMethodName(method, &method_name, &method_sig, NULL)) == 0 &&
         (err = jvmti->GetMethodDeclaringClass(method, &method_class)) == 0 &&
         (err = jvmti->GetClassSignature(method_class, &class_name, NULL)) == 0) {
-        // Trim 'L' and ';' off the class descriptor like 'Ljava/lang/Object;'
-        result = javaClassName(class_name + 1, strlen(class_name) - 2, _style);
+
+        result = javaClassName(class_name, strlen(class_name), _style);
         strcat(result, ".");
-        strcat(result, method_name);
-        if (_style & STYLE_SIGNATURES) strcat(result, method_sig);
+        appendMethodName(result, method_name);
+        if (_style & STYLE_SIGNATURES) {
+            appendDemangledJvmSignature(result, method_sig, _style);
+        }
         if (_style & STYLE_ANNOTATE) strcat(result, "_[j]");
     } else {
         snprintf(_buf, sizeof(_buf), "[jvmtiError %d]", err);
@@ -85,47 +87,8 @@ char* FrameName::javaMethodName(jmethodID method) {
 char* FrameName::javaClassName(const char* symbol, int length, int style) {
     char* result = _buf;
 
-    int array_dimension = 0;
-    while (*symbol == '[') {
-        array_dimension++;
-        symbol++;
-    }
-
-    if (array_dimension == 0) {
-        strncpy(result, symbol, length);
-        result[length] = 0;
-    } else {
-        switch (*symbol) {
-            case 'B': strcpy(result, "byte");    break;
-            case 'C': strcpy(result, "char");    break;
-            case 'I': strcpy(result, "int");     break;
-            case 'J': strcpy(result, "long");    break;
-            case 'S': strcpy(result, "short");   break;
-            case 'Z': strcpy(result, "boolean"); break;
-            case 'F': strcpy(result, "float");   break;
-            case 'D': strcpy(result, "double");  break;
-            default:
-                length -= array_dimension + 2;
-                strncpy(result, symbol + 1, length);
-                result[length] = 0;
-        }
-
-        do {
-            strcat(result, "[]");
-        } while (--array_dimension > 0);
-    }
-
-    if (style & STYLE_SIMPLE) {
-        for (char* s = result; *s; s++) {
-            if (*s == '/') result = s + 1;
-        }
-    }
-
-    if (style & STYLE_DOTTED) {
-        for (char* s = result; *s; s++) {
-            if (*s == '/') *s = '.';
-        }
-    }
+    result[0] = '\0';
+    appendDemangledJvmSignature(result, symbol, style);
 
     return result;
 }
@@ -179,4 +142,117 @@ const char* FrameName::name(ASGCT_CallFrame& frame) {
             return newName;
         }
     }
+}
+
+
+
+char* appendStr(char* out, const char* str) {
+    size_t len = strlen(str);
+    strncat(out, str, len);
+    return out + len;
+}
+
+
+char* FrameName::processJvmName(char* out, const char *signature, int& s_pos, int style) {
+
+
+    char* initial_out = out;
+    while(true) {
+        char cq = signature[s_pos];
+        switch (cq) {
+            case NULL:
+            case ';':
+                return out;
+            case ',':
+                out = appendStr(out, "\\,");
+                break;
+            case '\\':
+                out = appendStr(out, "\\\\");
+                break;
+            case '(':
+                out = appendStr(out, "\\(");
+                break;
+            case ')':
+                out = appendStr(out, "\\)");
+                break;
+            case '/':
+                if (style & STYLE_SIMPLE) {
+                    memset(initial_out, NULL, initial_out - out);
+                    break;
+                }
+                if (style & STYLE_DOTTED) {
+                    cq = '.';
+                }
+            default:
+                out = strncat(out, &cq, 1);
+                out++;
+                break;
+        }
+        s_pos++;
+    }
+}
+
+const char* primitiveType(char c) {
+    switch (c) {
+        case 'B': return "byte";
+        case 'C': return "char";
+        case 'D': return "double";
+        case 'F': return "float";
+        case 'I': return "int";
+        case 'J': return "long";
+        case 'S': return "short";
+        case 'V': return "void";
+        case 'Z': return "boolean";
+        default:
+            return "WTF!";
+    }
+}
+
+
+void FrameName::appendDemangledJvmSignature(char* out, const char *signature, int style) {
+    out = out + strlen(out); // shift to working pos
+    if (signature != NULL) {
+        int s_pos = 0;
+        int arrayDim = 0;
+        bool in_args = false;
+        while (true) {
+            char c = signature[s_pos];
+
+            switch (c) {
+                case 0:
+                    return;
+                case '[':
+                    arrayDim++;
+                    s_pos++;
+                    continue;
+                case 'L':
+                    s_pos++;
+                    out = processJvmName(out, signature, s_pos, style);
+                    break;
+                case '(':
+                    out = appendStr(out, "(");
+                    in_args = true;
+                    s_pos++;
+                    continue;
+                case ')':
+                    out = appendStr(out, ") ");
+                    in_args = false;
+                    s_pos++;
+                    continue;
+                default:
+                    out = appendStr(out, primitiveType(c));
+                    break;
+            }
+            for (;arrayDim > 0; arrayDim--) {
+                out = appendStr(out, "[]");
+            }
+            s_pos++;
+            if (in_args && signature[s_pos] != ')') out = appendStr(out, ", ");
+        }
+    }
+}
+
+void FrameName::appendMethodName(char *out, const char *name) {
+    int s_pos = 0;
+    processJvmName(out, name, s_pos, 0);
 }
